@@ -27,7 +27,12 @@ public:
                     juce::SynthesiserSound*, int pitchWheelValue) override
     {
         currentNote = midiNoteNumber;
-        level = juce::jlimit (0.0, 0.16, static_cast<double> (velocity) * 0.16);
+        level = juce::jlimit (0.0, 0.10, static_cast<double> (velocity) * 0.10);
+        currentAngle = 0.0;
+        attackAngle = 0.0;
+        attackLevel = static_cast<double> (velocity) * 0.22;
+        attackMultiplier = std::exp (std::log (0.001) / (0.020 * getSampleRate()));
+        attackAngleDelta = juce::MathConstants<double>::twoPi * 2500.0 / getSampleRate();
         tailOff = 0.0;
         updatePitch (pitchWheelValue);
     }
@@ -61,11 +66,18 @@ public:
 
         while (--numSamples >= 0)
         {
-            auto sample = static_cast<float> (std::sin (currentAngle) * level);
+            auto sample = std::sin (currentAngle) * level;
+
+            if (attackLevel > 0.0001)
+            {
+                sample += std::sin (attackAngle) * attackLevel;
+                attackAngle += attackAngleDelta;
+                attackLevel *= attackMultiplier;
+            }
 
             if (tailOff > 0.0)
             {
-                sample *= static_cast<float> (tailOff);
+                sample *= tailOff;
                 tailOff *= 0.9995;
 
                 if (tailOff <= 0.005)
@@ -77,7 +89,7 @@ public:
             }
 
             for (int channel = 0; channel < output.getNumChannels(); ++channel)
-                output.addSample (channel, startSample, sample);
+                output.addSample (channel, startSample, static_cast<float> (sample));
 
             currentAngle += angleDelta;
             ++startSample;
@@ -98,6 +110,10 @@ private:
     double angleDelta = 0.0;
     double level = 0.0;
     double tailOff = 0.0;
+    double attackAngle = 0.0;
+    double attackAngleDelta = 0.0;
+    double attackLevel = 0.0;
+    double attackMultiplier = 0.0;
 };
 
 class MainComponent final : public juce::AudioAppComponent,
@@ -118,8 +134,8 @@ public:
         status.setColour (juce::Label::textColourId, juce::Colours::white);
         addAndMakeVisible (status);
 
-        hint.setText ("Toque as teclas. Pitch bend também está ativo.\n"
-                      "Saída Bluetooth funciona para este teste, mas terá latência perceptível.",
+        hint.setText ("Toque as teclas: cada nota começa com um ataque percussivo curto.\n"
+                      "Use alto-falante ou fone cabeado para avaliar a latência.",
                       juce::dontSendNotification);
         hint.setJustificationType (juce::Justification::centred);
         hint.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
@@ -314,7 +330,7 @@ private:
     juce::Label title;
     juce::Label status;
     juce::Label hint;
-    juce::TextButton testButton { "TESTAR SOM (A4)" };
+    juce::TextButton testButton { "TESTAR ATAQUE (A4)" };
 
     juce::Synthesiser synth;
     juce::StringArray openedMidiIdentifiers;
